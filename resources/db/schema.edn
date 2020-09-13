@@ -1,0 +1,43 @@
+;; The :db/ident  type is preinstalled with Datomic,
+;; because it represents a concern (programmatic identifiers)
+;; that crosscuts all domains.
+
+
+[;;Types
+ {:db/ident :shirt}
+ {:db/ident :trousers}
+ {:db/ident :dress}
+ {:db/ident :hat}
+
+ ;; Colour
+ {:db/ident :red}
+ {:db/ident :green}
+ {:db/ident :blue}
+ {:db/ident :yellow}
+
+ ;; Sizes
+ {:db/ident :small}
+ {:db/ident :medium}
+ {:db/ident :large}
+ {:db/ident :xlarge}
+
+ {:db/ident :inv/sku
+  :db/valueType :db.type/string
+  :db/unique :db.unique/identity
+  :db/cardinality :db.cardinality/one
+  :db/doc "unique string identifier for a particular product"}
+
+ {:db/ident :inv/type
+  :db/valueType :db.type/ref
+  :db/cardinality :db.cardinality/one
+  :db/doc "Type of inventory item"}
+
+ {:db/ident :inv/colour
+  :db/valueType :db.type/ref
+  :db/cardinality :db.cardinality/one
+  :db/doc "Colour of inventory item"}
+ 
+ {:db/ident :inv/size
+  :db/valueType :db.type/ref
+  :db/cardinality :db.cardinality/one
+  :db/doc "Size of inventory item"} ]

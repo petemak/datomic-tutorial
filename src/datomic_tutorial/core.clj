@@ -2,6 +2,11 @@
   (:require [datomic.api :as d]))
 
 ;;--------------------------------------------------------------
+;;
+;;--------------------------------------------------------------
+(def connection (atom nil))
+
+;;--------------------------------------------------------------
 ;; 1. Get datomic-pro starter
 ;; 2. Extract 
 ;; 3. Copy a transactor.properties and specify license-key
@@ -98,23 +103,129 @@
   (let [schema (read-EDN "resources/db/schema.edn")
         data (sample-data)
         conn (create-db! db-uri)
-        res @(d/transact conn schema)]
-    {:connection conn :results res} ))
+        ress @(d/transact conn schema)
+        resd @(d/transact conn data)]
+    (reset! connection {:connection conn :resschems ress :ressdata resd})))
 
-
-
+;; ---------------------------------------------------------------------
 ;; Datomic maintains the entire history of your data.
 ;; From this, you can query against a database value
 ;; as of a particular point in time.
 ;; 
-;; The db API returns the latest database value from
+;; The db API returns the latest "database value" from
 ;; a connection.
+;;
+;; (def db (d/db conn))
+;;
+;; The datoms we want to query lookd as follows
+;;
+;; entity   Attribute     Value      Tx         op
+;; [20      :inv/sku      SKU-7      100202     true]
+;; [20      :inv/type     10         100202     true]
+;; [20      :inv/colour   15         100202     true]
+;; [20      :inv/size     17         100202     true]
+;;
+;; The values of the attributes type, colour and size are refs
+;; and therefore entity IDs for :db/idents
+;; ---------------------------------------------------------------------
+
+;; Query all SKUs
+(def all-skus-q '[:find ?e ?sku
+                  :where [?e :inv/sku ?sku]])
+
+;; Find SKUs with same colour as SKU-7
+;; Return their entity IDs, type, size and colour
+(def same-colourSKU7 '[:find ?o ?tp ?sz ?co
+                       :where [?e :inv/sku "SKU-7"] ;;Find eid SKU-7
+                              [?e :inv/colour ?c]  ;;Find colour of e
+                              [?o :inv/colour ?c]  ;;Find orthers same colour
+                              [?o :inv/type ?t]    ;;what's their type? ref
+                              [?o :inv/size ?s]    ;;what's their size? ref                                 [?t :db/ident ?tp]  ;;What's the actual type
+                              [?s :db/ident ?sz]   ;;What's the actual size?
+                              [?c :db/ident ?co]]) ;;What's the actual colour?
+
+(def same-colourSKU7 '[:find ?o ?tp ?sz ?co
+                       :where [?e :inv/sku "SKU-7"] ;;Find eid SKU-7
+                              [?e :inv/colour ?c]  ;;Find colour of e
+                              [?o :inv/colour ?c]  ;;Find orthers same colour
+                              [?o :inv/type ?t]    ;;what's their type? ref
+                              [?o :inv/size ?s]    ;;what's their size? ref   
+                              [?t :db/ident ?tp]   ;;What's the actual type
+                              [?s :db/ident ?sz]   ;;What's the actual size?
+                              [?c :db/ident ?co]]) ;;What's the actual colour?
+
+
+;; ---------------------------------------------------------------------
+;; Parametrised query: find SKUs with same colour.
+;; Return their entity IDs, type, size and colour
+;; ---------------------------------------------------------------------
+(def same-colour-pq '[:find ?o ?tp ?sz ?co
+                      :in $ ?sku
+                      :where [?e :inv/sku ?sku]  ;;Match eid for SKU-7
+                             [?e :inv/colour ?c] ;;Find colour of e
+                             [?o :inv/colour ?c] ;;Find orthers with same colour
+                             [?o :inv/type ?t]   ;;what's their type? ref
+                             [?o :inv/size ?s]   ;;what's their size? ref   
+                             [?t :db/ident ?tp]  ;;What's the actual type
+                             [?s :db/ident ?sz]  ;;What's the actual size?
+                             [?c :db/ident ?co]]);;What's the actual colour?
+
+
+;; ---------------------------------------------------------------------
+;; Call same colour
+;; ---------------------------------------------------------------------
 (defn same-colour
+  "Query all inventory with same colour"
   [sku conn]
-  (d/q '[:find ?sku ?c ?t
-         :where [?e  :inv/sku sku]
-                [?e  :inv/colour ?c]
-                [?e2 :inv/colour ?c]
-                [?e2 :inv/sku ?sku]
-                [?e2 :inv/type ?t] ]
-       (d/db conn)))
+  (if (some? sku)
+    (d/q same-colour-pq (d/db conn) sku)
+    (d/q same-colourSKU7 (d/db conn))))
+
+
+;; ---------------------------------------------------------------------
+;; Accumulate: track orders as well
+;;
+;; An order will have
+;; - one or many items
+;;
+;; An item will have
+;; - an id
+;; - count the number of items
+;; ---------------------------------------------------------------------
+(def order-schena [{:db/ident :order/items
+                    :db/valueType :db.type/ref
+                    :db/cardinality :db.cardinality/many
+                    :db/isComponent true
+                    :db/doc "An order consists of one or more items"}
+                   {:db/ident :item/id
+                    :db/valueType :db.type/ref
+                    :db/cardinality :db.cardinality/one
+                    :db/doc "An order item refers to a product"}
+                   {:db/ident :item/count
+                    :db/valueType :db.type/long
+                    :db/cardinality :db.cardinality/one
+                    :db/doc "Number of items of a particular 
+                              product in an order"}])
+
+(defn add-order-schema!
+  "Accumulation of schema. Add oder and items schema"
+  [conn schema]
+  (d/transact conn schema))
+
+;; ---------------------------------------------------------------------
+;; Order data.
+;; We use a nested entity map {order [item item ...]}
+;; The top level is an order. The nested level is a list of items.
+;; ---------------------------------------------------------------------
+(def order-data
+  {:order/items [{:item/id [:inv/sku "SKU-3"]
+                  :item/count 7}
+                 {:item/id [:inv/sku "SKU-17"]
+                  :item/count 3}]})
+
+(defn add-order-data!
+  "Accumulation of data. Add order data"
+  [conn data]
+  (d/transact conn [order-data]))
+
+

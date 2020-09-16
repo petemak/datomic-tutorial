@@ -1,0 +1,228 @@
+#+TITLE: Datomic - Separation of Identity and State
+#+Author s1i5fs
+
+
+* Installation
+
+** Datomic Starter
+Assume Java and Clojure are installed and working.
+
+*** Installation
+- Get Datomice Free from https://my.datomic.com/downloads/free
+- Extract to any location
+- Open .\config\free-transactor-template.properties
+  In here are optional settings like protocol, host and port which are set to safe defaults.
+
+*** Starting the transactor
+https://docs.datomic.com/on-prem/transactor.html
+A Datomic transactor performs ACID transactions for a set of databases. 
+You can launch a transactor for one or more databases with the bin/transactor 
+script in the datomic directory: 
+
+=bin/transactor pathconfig/samples/transactor-template.properties=
+
+
+** Datomic Free
+    A good fit for open source applications. 
+
+*** Setup
+    - Just add =[com.datomic/datomic-free "0.9.5206"]= to =project.clj=
+    - Excluding guava avoids collisions with other libraries
+      =[com.datomic/datomic-free "0.9.5697" :exclusions [[com.google.guava/guava]]]=
+
+#+NAME: leinigen-project
+#+BEGIN_SRC clojure
+(defproject datomic-tutorial "0.1.0-SNAPSHOT"
+  :description "FIXME: write description"
+  :url "http://example.com/FIXME"
+  :license {:name "EPL-2.0 OR GPL-2.0-or-later WITH Classpath-exception-2.0"
+            :url "https://www.eclipse.org/legal/epl-2.0/"}
+  :dependencies [[org.clojure/clojure "1.10.0"]
+                 [com.datomic/datomic-free "0.9.5697" :exclusions [[com.google.guava/guava]]]]
+  :repl-options {:init-ns datomic-tutorial.core})
+#+END_SRC
+
+
+*** Use
+ 
+ - Require datomic.api
+
+#+NAME: namespace-import
+#+BEGIN_SRC clojure
+ (ns datomic-tutorial.core
+  (:require [datomic.api :as d]
+#+END_SRC    
+
+See: http://gigasquidsoftware.com/blog/2015/08/15/conversations-with-datomic/
+
+
+* What is Datomic?
+Designed to support both:
+ - Distributed, scallable *reads*
+ - Fully ACID *transactions*
+
+Whats so special about those?
+
+** Data Model
+ - Tupple-based
+ - Supports time
+ - Datalog querry languange
+
+*** Fact
+Desinged to be a database of facts (Datoms):
+ - Piece of information
+ - About one thing
+ - Valid/true at a specific point in time
+ - Immutable value -> profound aspect
+   - You can querry the value
+   - Entire database is value
+   - you can pass it around
+   - querry the value over time and get the same result even as new data is accumlating.
+
+
+*** Representation of Facts
+
+**** EAVT index 
+
+| Entity | Attribute   | Value            |   Tx | Op      |
+|--------+-------------+------------------+------+---------|
+|   3001 | :name       | "Vivi"           | 1001 | assert  |
+|   3001 | :age        | 7                | 1001 | assert  |
+|   3001 | :likes      | cake             | 1001 | assert  |
+|   3001 | :age        | 8                | 1003 | assert  |
+|   3001 | :age        | 7                | 1003 | retract |
+|   3001 | :likes      | lemon-drizzle    | 1005 | assert  |
+|   3001 | :likes      | cake             | 1005 | retract |
+|   3001 | :school     | "Barhard Castle" | 1006 | assert  |
+|   3001 | :schoolfees | 1050             | 1006 | assert  |
+
+
+**** Retraction and assertions 
+With transaction 1005 
+ * We retracted a fact that "Vivi" likes cake 
+ * ... and now likes lemon-drizzle :-) 
+
+ * NOTE: we add new facts and never delete old facts
+
+
+*** Query database "now"
+    - This is the default view
+    - What is the status of the database now
+    - We ignore thigs that were retracted in the past
+
+| Entity | Attribute |  Value |   Tx | Op      |
+|--------+-----------+--------+------+---------|
+|   3001 | :name     | "Vivi" | 1001 | assert  |
+|   3001 | :age      |      7 | 1001 | assert  |
+|   3001 | :likes    |   cake | 1001 | assert  |
+|   3001 | :age      |      8 | 1003 | assert  |
+|   3001 | :age      |      7 | 1003 | retract |
+
+
+*** Query state as of t=1001  
+We can also go back in time. What was the status as of tx = 1001
+
+| Entity | Attribute | Value  |   Tx | Op     |
+|--------+-----------+--------+------+--------|
+|   3001 | :name     | "Vivi" | 1001 | assert |
+|   3001 | :age      | 7      | 1001 | assert |
+|   3001 | :likes    | cake   | 1001 | assert |
+
+
+*** Querry history
+We can also look at the full view, the complete list of datoms we have accumulated over time.
+We can treated it as a log, a complete history. 
+We can do queries over time:
+ - When did this entity change
+ - How did it change
+ - Which entities were asserted and retracted
+
+
+*** Do Speculative transactions what if we had ....?
+What would the database look like if we added a new temporary datom
+
+| Entity | Attribute | Value  |    Tx | Op     |
+|--------+-----------+--------+-------+--------|
+|   3001 | :name     | "Vivi" |  1001 | assert |
+|   3001 | :age      | 7      |  1001 | assert |
+|   3001 | :likes    | cake   |  1001 | assert |
+|   3002 | :name     | "Mumu" | (new) | assert |
+|   3002 | :age      | 5      | (new) | assert |
+
+
+* Datomic Architecture
+
+#+CAPTION: Datomic architectural
+#+NAME: fig:architecture
+  [[./resources/architecture.jpg]]
+
+** Components 
+
+*** Pear Library
+    Part of datomic but is local
+   + Runs embedded in your JVM application
+   + Executes querries locally
+   + Runs in the same process as the application
+   + No roundtrips
+   + Pulls data from storage service (highly available, horizontally scallable)
+
+
+*** Transactor
+
+
+*** Storage Service
+
+
+* Querrying
+
+** Sample Database 
+ 
+| Entity | Attribute | Value             |
+|--------+-----------+-------------------|
+|     33 | :email    | "alice@email.com" |
+|     37 | :email    | "bob@email.com"   |
+|     33 | :orders   | 206               |
+|     33 | :orders   | 501               |
+|     37 | :orders   | 308               |
+
+
+ - Entities 33 and 37 have emails
+ - They also have orders:
+   * Entity 33 has 2 orders 206 and 501
+   * Entity 37 has 1 orser 308
+
+
+
+
+** Data Patterns
+Querrying is based on a variant of Datalog 
+Querrying uses data patterns which are tuples consisiting of E, A and V.
+It constrains results and binds variables starting with a "?"
+
+#+CAPTION: Datomic data patterns
+#+NAME: fig:data-pattern
+[[./resources/data-pattern.jpg]]
+
+Example pattern: comstrains entites with an email and binds value to ?e
+
+*[?e :email "alice@email.com"]*
+
+
+** Query Clause
+The full query has 3 main clauses:
+
+ 1. :find - what to find and return as a result for the query
+ 2. :in - inputs to the query, the first is the database value
+ 3. :where - pattern to match describing what we are looking for
+
+#+CAPTION: Datomic data patterns
+#+NAME: fig:data-pattern
+[[./resources/query-clause.jpg
+]]
+NOTE: the queries are local not sent to a remote server
+
+** Query API
+
+
+
+

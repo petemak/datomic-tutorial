@@ -41,3 +41,4 @@
   :db/valueType :db.type/ref
   :db/cardinality :db.cardinality/one
   :db/doc "Size of inventory item"} ]
+

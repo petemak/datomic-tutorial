@@ -91,6 +91,7 @@
   []
   (try
     (d/delete-database db-uri)
+    (reset! connection nil)
     (catch Exception e
         (str "::-> delete-db! failed: " (.getMessage e)))))
 
@@ -105,7 +106,7 @@
         conn (create-db! db-uri)
         ress @(d/transact conn schema)
         resd @(d/transact conn data)]
-    (reset! connection {:connection conn :resschems ress :ressdata resd})))
+    (reset! connection {:connection conn :resschema ress :resdata resd})))
 
 ;; ---------------------------------------------------------------------
 ;; Datomic maintains the entire history of your data.
@@ -135,15 +136,7 @@
 
 ;; Find SKUs with same colour as SKU-7
 ;; Return their entity IDs, type, size and colour
-(def same-colourSKU7 '[:find ?o ?tp ?sz ?co
-                       :where [?e :inv/sku "SKU-7"] ;;Find eid SKU-7
-                              [?e :inv/colour ?c]  ;;Find colour of e
-                              [?o :inv/colour ?c]  ;;Find orthers same colour
-                              [?o :inv/type ?t]    ;;what's their type? ref
-                              [?o :inv/size ?s]    ;;what's their size? ref                                 [?t :db/ident ?tp]  ;;What's the actual type
-                              [?s :db/ident ?sz]   ;;What's the actual size?
-                              [?c :db/ident ?co]]) ;;What's the actual colour?
-
+;;What's the actual colour?
 (def same-colourSKU7 '[:find ?o ?tp ?sz ?co
                        :where [?e :inv/sku "SKU-7"] ;;Find eid SKU-7
                               [?e :inv/colour ?c]  ;;Find colour of e
@@ -192,7 +185,7 @@
 ;; - an id
 ;; - count the number of items
 ;; ---------------------------------------------------------------------
-(def order-schena [{:db/ident :order/items
+(def order-schema [{:db/ident :order/items
                     :db/valueType :db.type/ref
                     :db/cardinality :db.cardinality/many
                     :db/isComponent true
@@ -207,7 +200,7 @@
                     :db/doc "Number of items of a particular 
                               product in an order"}])
 
-(defn add-order-schema!
+(defn assert-order-schema!
   "Accumulation of schema. Add oder and items schema"
   [conn schema]
   (d/transact conn schema))
@@ -216,6 +209,16 @@
 ;; Order data.
 ;; We use a nested entity map {order [item item ...]}
 ;; The top level is an order. The nested level is a list of items.
+;;
+;; How do the persisisted EAVT index enries look like?
+;; --------------------------------------------------------------
+;; [E        A                V                T            Op]
+;; --------------------------------------------------------------
+;; [10       :item/id         EID-SKU-3        00100        true]
+;; [10       :item/count      7                00100        true]
+;; [11       :item/id         EID-SKU-17       00100        true]
+;; [11       :item/count      3                00100        true]
+;; [12       :order/items     [10 11]          00100        true]
 ;; ---------------------------------------------------------------------
 (def order-data
   {:order/items [{:item/id [:inv/sku "SKU-3"]
@@ -223,9 +226,76 @@
                  {:item/id [:inv/sku "SKU-17"]
                   :item/count 3}]})
 
-(defn add-order-data!
+(defn assert-order-data!
   "Accumulation of data. Add order data"
   [conn data]
   (d/transact conn [order-data]))
 
 
+;; ---------------------------------------------------------------------
+;; Task: retriev all order and number of items
+;;
+;; --------------------------------------------------------------------
+(def all-orders-q '[:find ?e ?sku ?cnt
+                    :where [?e :order/items   ?eit]   ;; find all order's item eids
+                           [?eit :item/id     ?esk]   ;; with the eids find the SKU ids 
+                           [?esk :inv/sku     ?sku]   ;; with the SKU ids find the SKU
+                           [?eit :item/count  ?cnt]]) ;; with eids find the count,
+
+(defn all-orders
+  "Query all orders"
+  [conn]
+  (d/q all-orders-q (d/db conn)))
+
+
+;; ---------------------------------------------------------------------
+;; Task: suggest additional items to shoppers based on an
+;;       inventory item they choose.
+;;
+;; So we need a query that, given any inventory item, finds all
+;; the other items that have ever appeared in the same order.
+;;
+;; Lets query all orders and related items
+;; --------------------------------------------------------------------
+
+(def related-items-q '[:find ?oinv ?sku
+                       :in $ ?inv
+                       :where [?item   :item/id      ?inv]  ;; find the id of item
+                              [?order  :order/items  ?item] ;; find order for item
+                              [?order  :order/items  ?oitems] ;; find other items
+                              [?oitems :item/id      ?oinv]   ;; find  inventory items 
+                              [?oinv   :inv/sku      ?sku]]) ;; Find SKU o
+
+;; ---------------------------------------------------------------------
+;; Datomic performs automatic resolution of entity identifiers,
+;; so entity ids, idents, and lookup refs cna be used interchangeably.
+;;
+;; If you know a unique attribute they dont need to know the entity id.
+;; A lookup ref will do the trick.
+;;
+;; A lookup ref is a two element list of unique attribute + value uniquely
+;; identifies an entity [:inv/sku  "SKU-7"]
+;; ---------------------------------------------------------------------
+(defn related-items
+  "Query all orders. Uses a query ref "
+  [conn sku]
+  (d/q related-items-q (d/db conn) [:inv/sku sku]))
+
+
+;; Rules
+(def rules
+  '[[(ordered-together ?inv ?orther-inv)
+     [?item  :item/id ?inv]
+     [?order :order/items ?item]
+     [?order :order/items ?other-item]
+     [?other-item :item/id ?other-inv]]])
+
+(def related-items-q2 '[:find ?sku
+                        :in $ ?inv
+                        :where (ordered-together ?inv other-inv)
+                               [?oher-inv :inv/sku ?sku]])
+
+
+(defn related-items2
+  [conn sku]
+  (d/q related-items-q2 (d/db conn) [:inv/sku sku]))

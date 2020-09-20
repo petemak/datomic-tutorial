@@ -5,4 +5,6 @@
             :url "https://www.eclipse.org/legal/epl-2.0/"}
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [com.datomic/datomic-free "0.9.5697"]]
+  :profiles {:dev {:dependencies [[midje "1.9.9" :exclusions [org.clojure/clojure]]]
+                   :plugins [[lein-midje "3.2.2"]]}}
   :repl-options {:init-ns datomic-tutorial.core})

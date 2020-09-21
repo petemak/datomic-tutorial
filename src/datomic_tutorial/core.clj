@@ -284,18 +284,26 @@
 
 ;; Rules
 (def rules
-  '[[(ordered-together ?inv ?orther-inv)
+  '[[(ordered-together ?inv ?other-inv)
      [?item  :item/id ?inv]
      [?order :order/items ?item]
      [?order :order/items ?other-item]
      [?other-item :item/id ?other-inv]]])
 
+;; ---------------------------------------------------------------------
+;; pass these rules to a query, using the special
+;; :in name %, and then refer to the rules by name
+;; ---------------------------------------------------------------------
 (def related-items-q2 '[:find ?sku
-                        :in $ ?inv
-                        :where (ordered-together ?inv other-inv)
-                               [?oher-inv :inv/sku ?sku]])
+                        :in $ % ?inv
+                        :where (ordered-together ?inv ?other-inv)
+                               [?other-inv :inv/sku ?sku]])
 
-
+;; ---------------------------------------------------------------------
+;; pass these rules to a query, using the special
+;; :in name %, and then refer to the rules by name
+;; ---------------------------------------------------------------------
 (defn related-items2
+  "Related items to spicified SKU"
   [conn sku]
-  (d/q related-items-q2 (d/db conn) [:inv/sku sku]))
+  (d/q related-items-q2 (d/db conn) rules [:inv/sku sku]))

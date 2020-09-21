@@ -44,6 +44,14 @@
        (count (c/related-items (:connection @c/connection) "SKU-3")) => 2))
 
 
+(against-background
+ [(before :contents (setup!))
+  (after :contents (c/delete-db!))]
+ (fact "Related items to SKU-3 is SU-7 using rules. Else empty"
+       (empty? (c/related-items2 (:connection @c/connection) "SKU-7")) => true
+       (count (c/related-items2 (:connection @c/connection) "SKU-3")) => 2))
+
+
 
 (comment
 

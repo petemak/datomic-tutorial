@@ -54,7 +54,7 @@
 (defn sample-data
   "Generate sample data
   64 maps:
-  {:inv/sku \"SHU-1\"
+  {:inv/sku \"SKU-1\"
    :inv/type :shirt
    :inv/colour :green
    :inv/size :medium}"
@@ -107,6 +107,9 @@
         ress @(d/transact conn schema)
         resd @(d/transact conn data)]
     (reset! connection {:connection conn :resschema ress :resdata resd})))
+
+
+
 
 ;; ---------------------------------------------------------------------
 ;; Datomic maintains the entire history of your data.
@@ -232,15 +235,37 @@
   (d/transact conn [order-data]))
 
 
+
+;; ---------------------------------------------------------------------
+;; Accumulation: add order schema and seed data for orders
+;; ---------------------------------------------------------------------
+(defn setup-oders!
+  "Assert order schema and seed data"
+  []
+  (let [conn (:connection @connection)
+        res-orderschema (assert-order-schema! conn  order-schema)
+        res-orderdata (assert-order-data! conn order-data)]
+    @res-orderdata))
+
+
+
+
+(defn setup-orders-if-not-exist!
+  []
+  (when-not (some? (:connection @connection))
+    (setup-db!))
+  (setup-oders!))
+
+
 ;; ---------------------------------------------------------------------
 ;; Task: retriev all order and number of items
 ;;
 ;; --------------------------------------------------------------------
 (def all-orders-q '[:find ?e ?sku ?cnt
-                    :where [?e :order/items   ?eit]   ;; find all order's item eids
-                           [?eit :item/id     ?esk]   ;; with the eids find the SKU ids 
-                           [?esk :inv/sku     ?sku]   ;; with the SKU ids find the SKU
-                           [?eit :item/count  ?cnt]]) ;; with eids find the count,
+                    :where [?e :order/items  ?eit]  ;; find all order's item eids
+                           [?eit :item/id    ?esk]  ;; with the eids find the SKU ids 
+                           [?esk :inv/sku    ?sku]   ;; with the SKU ids find the SKU
+                           [?eit :item/count ?cnt]]) ;; with eids find the count,
 
 (defn all-orders
   "Query all orders"
@@ -270,7 +295,7 @@
 ;; Datomic performs automatic resolution of entity identifiers,
 ;; so entity ids, idents, and lookup refs cna be used interchangeably.
 ;;
-;; If you know a unique attribute they dont need to know the entity id.
+;; If you know a unique attribute then you dont need to know the entity id.
 ;; A lookup ref will do the trick.
 ;;
 ;; A lookup ref is a two element list of unique attribute + value uniquely
@@ -281,9 +306,14 @@
   [conn sku]
   (d/q related-items-q (d/db conn) [:inv/sku sku]))
 
-
+;; ---------------------------------------------------------------------
 ;; Rules
-(def rules
+;;
+;; Datomic datalog allows to package up sets of :where clauses into
+;; named rules. These rules make query logic reusable, and also composable,
+;; meaning that you can bind portions of a query's logic at query time. 
+;; ---------------------------------------------------------------------
+(def ordered-together-rule
   '[[(ordered-together ?inv ?other-inv)
      [?item  :item/id ?inv]
      [?order :order/items ?item]
@@ -296,7 +326,7 @@
 ;; ---------------------------------------------------------------------
 (def related-items-q2 '[:find ?sku
                         :in $ % ?inv
-                        :where (ordered-together ?inv ?other-inv)
+                        :where (ordered-together-rule ?inv ?other-inv)
                                [?other-inv :inv/sku ?sku]])
 
 ;; ---------------------------------------------------------------------
@@ -306,4 +336,72 @@
 (defn related-items2
   "Related items to spicified SKU"
   [conn sku]
-  (d/q related-items-q2 (d/db conn) rules [:inv/sku sku]))
+  (d/q related-items-q2 (d/db conn)
+       ordered-together-rule
+       [:inv/sku sku]))
+
+
+;; ---------------------------------------------------------------------
+;; Retracts
+;;
+;; Lets first add an attribute for the inventory count
+;; ---------------------------------------------------------------------
+(def inv-counts-schema
+  [{:db/ident :inv/count
+    :db/valueType :db.type/long
+    :db/cardinality :db.cardinality/one}])
+
+
+(defn assert-count-schema!
+  "Transact the count inventory schema"
+  [conn]
+  (d/transact conn inv-counts-schema))
+
+;; ---------------------------------------------------------------------
+;;
+;; Now we can assert that we have seven of SKU-21 and a thousand of SKU-42: 
+;; ---------------------------------------------------------------------
+(def inventory-count-data
+  [{:inv/sku "SKU-21"
+    :inv/count 7}
+   {:inv/sku "SKU-22"
+    :inv/count 7}
+   {:inv/sku "SKU-23"
+    :inv/count 100}])
+
+;; ---------------------------------------------------------------------
+;;
+;; Now we can assert that we have seven of SKU-21 and a thousand of SKU-42: 
+;; ---------------------------------------------------------------------
+
+(defn assert-count-data!
+  "Transact the count inventory data"  
+  [conn]
+  (d/transact conn inventory-count-data))
+
+
+;; ---------------------------------------------------------------------
+;; Accumulation: add inventory count schema and seed data  
+;; ---------------------------------------------------------------------
+(defn setup-counts!
+  "Assert inventory counts schema and seed"
+  []
+  (let [conn (:connection @connection)
+        res-schema (assert-count-schema! conn)
+        res-data (assert-count-data! conn)]
+    @res-data))
+
+
+;; ---------------------------------------------------------------------
+;; Query for SKUs with counts 
+;; ---------------------------------------------------------------------
+(def inv-count-q
+  '[:find ?e ?sku ?c
+    :where [?e :inv/sku ?sku]
+    [?e :inv/count ?c]])
+
+(defn inv-count
+  "Return inventory of SKUs and count"
+  [conn]
+  (d/q inv-count-q (d/db conn)))
+

@@ -26,18 +26,8 @@
 
 
 
-
-(defn setup!
-  "Set up database"
-  []
-  (let [res-setup (c/setup-db!)
-        res-orderschema (c/assert-order-schema! (:connection @c/connection) c/order-schema)
-        res-orderdata (c/assert-order-data! (:connection @c/connection) c/order-data)]
-    @res-orderdata) )
-
-
 (against-background
- [(before :contents (setup!))
+ [(before :contents (c/setup-db!))
   (after :contents (c/delete-db!))]
  (fact "related items to SKU-3 is SU-7. Else empty"
        (empty? (c/related-items (:connection @c/connection) "SKU-7")) => true
@@ -45,7 +35,7 @@
 
 
 (against-background
- [(before :contents (setup!))
+ [(before :contents (c/setup-orders-if-not-exist!))
   (after :contents (c/delete-db!))]
  (fact "Related items to SKU-3 is SU-7 using rules. Else empty"
        (empty? (c/related-items2 (:connection @c/connection) "SKU-7")) => true

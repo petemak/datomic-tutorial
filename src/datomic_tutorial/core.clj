@@ -51,7 +51,7 @@
 ;; 4 colours and 4 sizes.
 ;; => 4 x 4 x 4 = 64 maps
 ;;-------------------------------------------------------------
-(defn sample-data
+(defn inv-sku-data
   "Generate sample data
   64 maps:
   {:inv/sku \"SKU-1\"
@@ -102,7 +102,7 @@
   "Initialise databae"
   []
   (let [schema (read-EDN "resources/db/schema.edn")
-        data (sample-data)
+        data (inv-sku-data)
         conn (create-db! db-uri)
         ress @(d/transact conn schema)
         resd @(d/transact conn data)]
@@ -239,22 +239,24 @@
 ;; ---------------------------------------------------------------------
 ;; Accumulation: add order schema and seed data for orders
 ;; ---------------------------------------------------------------------
-(defn setup-oders!
+(defn setup-orders!
   "Assert order schema and seed data"
-  []
-  (let [conn (:connection @connection)
-        res-orderschema (assert-order-schema! conn  order-schema)
+  [conn]
+  (let [res-orderschema (assert-order-schema! conn  order-schema)
         res-orderdata (assert-order-data! conn order-data)]
     @res-orderdata))
 
 
 
-
+;; ---------------------------------------------------------------------
+;; Accumulation: add order schema and seed data for orders
+;; ---------------------------------------------------------------------
 (defn setup-orders-if-not-exist!
-  []
-  (when-not (some? (:connection @connection))
-    (setup-db!))
-  (setup-oders!))
+  [conn]
+  (if (some? conn)
+    (setup-orders! conn)
+    (let [res (setup-db!)]
+      (setup-orders! (:connection res)))))
 
 
 ;; ---------------------------------------------------------------------
@@ -326,7 +328,7 @@
 ;; ---------------------------------------------------------------------
 (def related-items-q2 '[:find ?sku
                         :in $ % ?inv
-                        :where (ordered-together-rule ?inv ?other-inv)
+                        :where (ordered-together ?inv ?other-inv)
                                [?other-inv :inv/sku ?sku]])
 
 ;; ---------------------------------------------------------------------
@@ -336,7 +338,8 @@
 (defn related-items2
   "Related items to spicified SKU"
   [conn sku]
-  (d/q related-items-q2 (d/db conn)
+  (d/q related-items-q2
+       (d/db conn)
        ordered-together-rule
        [:inv/sku sku]))
 
@@ -344,7 +347,7 @@
 ;; ---------------------------------------------------------------------
 ;; Retracts
 ;;
-;; Lets first add an attribute for the inventory count
+;; Lets start by accumlating to add schema for inventory counts
 ;; ---------------------------------------------------------------------
 (def inv-counts-schema
   [{:db/ident :inv/count
@@ -404,4 +407,5 @@
   "Return inventory of SKUs and count"
   [conn]
   (d/q inv-count-q (d/db conn)))
+
 

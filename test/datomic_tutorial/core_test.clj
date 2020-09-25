@@ -27,7 +27,7 @@
 
 
 (against-background
- [(before :contents (c/setup-db!))
+ [(before :contents (c/setup-orders-if-not-exist! (:connection @c/connection)))
   (after :contents (c/delete-db!))]
  (fact "related items to SKU-3 is SU-7. Else empty"
        (empty? (c/related-items (:connection @c/connection) "SKU-7")) => true
@@ -35,7 +35,7 @@
 
 
 (against-background
- [(before :contents (c/setup-orders-if-not-exist!))
+ [(before :contents (c/setup-orders-if-not-exist! (:connection @c/connection)))
   (after :contents (c/delete-db!))]
  (fact "Related items to SKU-3 is SU-7 using rules. Else empty"
        (empty? (c/related-items2 (:connection @c/connection) "SKU-7")) => true
@@ -44,23 +44,31 @@
 
 
 (comment
+  ;; Load name apace
+  (require '[datomic.api :as d])
+  (require :reload '[datomic-tutorial.core :as c])
 
-(require :reload '[datomic-tutorial.core :as c])
+  ;; set up db connection and assert inventory schema + data
+  (def res-setup (c/setup-db!))
+  
 
-(def res-setup (c/setup-db!))
+  ;; assert order schema
+  (def res-orderschema (c/assert-order-schema!
+                        (:connection @c/connection) c/order-schema))
 
-(def res-orderschema (c/assert-order-schema!
-                      (:connection res-setup) c/order-schema))
+  ;; Assert order data
+  (def res-orderdata (c/assert-order-data! (:connection @c/connection) c/order-data))
 
-(def res-orderdata (c/assert-order-data! (:connection res-setup) c/order-data))
+  ;; Setup db in one step
+  (def res-setup (c/setup-orders-if-not-exist! nil))
 
-;; Check connection
-(c/all-orders (:connection res-setup))
+  ;; Check connection
+  (c/all-orders (:connection @c/connection))
 
 ;; items in the same order as...
-(c/related-items (:connection res-setup) "SKU-7")
+(c/related-items (:connection @c/connection) "SKU-7")
 
-(c/related-items (:connection res-setup) "SKU-3")
+(c/related-items (:connection @c/connection) "SKU-3")
 
 
   )

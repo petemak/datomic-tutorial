@@ -1,5 +1,6 @@
 (ns datomic-tutorial.core
-  (:require [datomic.api :as d]))
+  (:require [datomic.api :as d]
+            [datomic-tutorial.db-util :as u]))
 
 ;;--------------------------------------------------------------
 ;;
@@ -32,26 +33,36 @@
 
 
 ;;-------------------------------------------------------------
+;; 1. Schema uses :db/ident to define a programatic identifiers
+;; First we define identifiers for inventory identifieers type, colour and size.
 ;;
+;; Inventory types:
+;;  {:db/ident :shirt}
+;;  {:db/ident :trousers}
+;;  {:db/ident :dress}
+;;  {:db/ident :hat}
 ;;
-;;-------------------------------------------------------------
-(defn read-EDN
-  "Reads schema or seed data from the specified source.
-   file s. Note s must be EDN format and the location
-  relatibe to the root of the application e.g
-  resources/db/schema.edn"
-  [s]
-  (-> s
-      (slurp)
-      (read-string)))
-
-
-;;-------------------------------------------------------------
+;; Next Inventory attributes like SKU, type, colour and size:
+;;
+;;  {:db/ident :inv/sku
+;;   :db/valueType :db.type/string
+;;   :db/unique :db.unique/identity
+;;   :db/cardinality :db.cardinality/one
+;;  :db/doc "unique string identifier for a particular product"}
+;; 
+;;  {:db/ident :inv/type
+;;   :db/valueType :db.type/ref
+;;   :db/cardinality :db.cardinality/oney
+;;   :db/doc "Type of inventory item"}
+;; 
+;; See resources/db/schema.edn
+;;  
+;;
 ;; Generate a combination of maps from 4, types,
 ;; 4 colours and 4 sizes.
 ;; => 4 x 4 x 4 = 64 maps
 ;;-------------------------------------------------------------
-(defn inv-sku-data
+(defn gen-inv-data
   "Generate sample data
   64 maps:
   {:inv/sku \"SKU-1\"
@@ -72,21 +83,27 @@
 
 
 ;;-------------------------------------------------------------
-;; Create database
-;; and connect
+;; 2. Create, connect to the database then 
+;; Seed database with test data
 ;;-------------------------------------------------------------
-(defn create-db!
-  "Create and connect to a database
-   with the specied URI returing the
-  connection"
-  [dburi]
-  (d/create-database dburi)
-  (d/connect dburi))
+(defn setup-db!
+  "Initialise database, transcts schema and
+   seeds it with inventory data and stores
+   the connection and db state in the atom"
+  []
+  (let [schema (u/read-EDN "resources/db/schema.edn")
+        data (gen-inv-data)
+        conn (u/create-db! db-uri)
+        ress @(d/transact conn schema)
+        resd @(d/transact conn data)]
+    (reset! connection {:connection conn :resschema ress :resdata resd})))
+
+
 
 ;;-------------------------------------------------------------
 ;; Required only during REPL sessions
 ;;-------------------------------------------------------------
-(defn delete-db!
+(defn teardown-db!
   "Clean up database"
   []
   (try
@@ -95,23 +112,9 @@
     (catch Exception e
         (str "::-> delete-db! failed: " (.getMessage e)))))
 
-;;-------------------------------------------------------------
-;; Seed database with test data
-;;-------------------------------------------------------------
-(defn setup-db!
-  "Initialise databae"
-  []
-  (let [schema (read-EDN "resources/db/schema.edn")
-        data (inv-sku-data)
-        conn (create-db! db-uri)
-        ress @(d/transact conn schema)
-        resd @(d/transact conn data)]
-    (reset! connection {:connection conn :resschema ress :resdata resd})))
-
-
-
-
 ;; ---------------------------------------------------------------------
+;; 3. Querrying the database 
+;; 
 ;; Datomic maintains the entire history of your data.
 ;; From this, you can query against a database value
 ;; as of a particular point in time.
@@ -132,14 +135,18 @@
 ;; The values of the attributes type, colour and size are refs
 ;; and therefore entity IDs for :db/idents
 ;; ---------------------------------------------------------------------
-
+;;
+;; ---------------------------------------------------------------------
 ;; Query all SKUs
+;; ---------------------------------------------------------------------
 (def all-skus-q '[:find ?e ?sku
                   :where [?e :inv/sku ?sku]])
 
+;; ---------------------------------------------------------------------
 ;; Find SKUs with same colour as SKU-7
 ;; Return their entity IDs, type, size and colour
 ;;What's the actual colour?
+;; ---------------------------------------------------------------------
 (def same-colourSKU7 '[:find ?o ?tp ?sz ?co
                        :where [?e :inv/sku "SKU-7"] ;;Find eid SKU-7
                               [?e :inv/colour ?c]  ;;Find colour of e
@@ -179,7 +186,7 @@
 
 
 ;; ---------------------------------------------------------------------
-;; Accumulate: track orders as well
+;; 4. Accumulate: track orders as well
 ;;
 ;; An order will have
 ;; - one or many items
@@ -209,7 +216,7 @@
   (d/transact conn schema))
 
 ;; ---------------------------------------------------------------------
-;; Order data.
+;; 4.1 The order data.
 ;; We use a nested entity map {order [item item ...]}
 ;; The top level is an order. The nested level is a list of items.
 ;;
@@ -237,7 +244,7 @@
 
 
 ;; ---------------------------------------------------------------------
-;; Accumulation: add order schema and seed data for orders
+;; 4.2 Accumulation: add order schema and seed data for orders
 ;; ---------------------------------------------------------------------
 (defn setup-orders!
   "Assert order schema and seed data"
@@ -250,8 +257,10 @@
 
 ;; ---------------------------------------------------------------------
 ;; Accumulation: add order schema and seed data for orders
+;; This version ensures the DB is initiated if it does not exists
 ;; ---------------------------------------------------------------------
 (defn setup-orders-if-not-exist!
+  "Ensures databse is initiated if not done before"
   [conn]
   (if (some? conn)
     (setup-orders! conn)
@@ -260,7 +269,7 @@
 
 
 ;; ---------------------------------------------------------------------
-;; Task: retriev all order and number of items
+;; 4.3 Task: retriev all order and number of items
 ;;
 ;; --------------------------------------------------------------------
 (def all-orders-q '[:find ?e ?sku ?cnt
@@ -276,6 +285,8 @@
 
 
 ;; ---------------------------------------------------------------------
+;; 5. Parametrised quesries
+;; 
 ;; Task: suggest additional items to shoppers based on an
 ;;       inventory item they choose.
 ;;
@@ -284,7 +295,6 @@
 ;;
 ;; Lets query all orders and related items
 ;; --------------------------------------------------------------------
-
 (def related-items-q '[:find ?oinv ?sku
                        :in $ ?inv
                        :where [?item   :item/id      ?inv]  ;; find the id of item
@@ -309,7 +319,7 @@
   (d/q related-items-q (d/db conn) [:inv/sku sku]))
 
 ;; ---------------------------------------------------------------------
-;; Rules
+;;6.  Rules
 ;;
 ;; Datomic datalog allows to package up sets of :where clauses into
 ;; named rules. These rules make query logic reusable, and also composable,
@@ -345,9 +355,33 @@
 
 
 ;; ---------------------------------------------------------------------
-;; Retracts
+;; 7. Retracts
 ;;
 ;; Lets start by accumlating to add schema for inventory counts
+;; Each item in the inventory should have a count.
+;;
+;; Remember original inventory schema had only sku, type,
+;; colour and size
+;;
+;; {:db/ident :inv/sku
+;;  :db/valueTdtype :db.type/string
+;;  ....}
+;;
+;;  {:db/ident :inv/type
+;;   :db/valueType :db.type/ref
+;;   .... }
+;;
+;;  {:db/ident :inv/colour
+;;   :db/valueType :db.type/ref
+;;   .... }
+,, 
+;;  {:db/ident :inv/size
+;;   :db/valueType :db.type/ref
+;;   .... }
+;;
+;; Now we add:
+;; {:db/ident :inv/count
+;;  :db/vvalueType :db.type/long
 ;; ---------------------------------------------------------------------
 (def inv-counts-schema
   [{:db/ident :inv/count
@@ -362,15 +396,16 @@
 
 ;; ---------------------------------------------------------------------
 ;;
-;; Now we can assert that we have seven of SKU-21 and a thousand of SKU-42: 
+;; Now we can assert that we have seven of SKU-3, SKU-7 and SKU-10:
+;;
+;; Note we are using lookup refs [unique attr val] to identify the entities:
+;;  A lookup ref is a two element list of unique  +  that uniquely
+;;  identifies an entity, e.g.
 ;; ---------------------------------------------------------------------
 (def inventory-count-data
-  [{:inv/sku "SKU-21"
-    :inv/count 7}
-   {:inv/sku "SKU-22"
-    :inv/count 7}
-   {:inv/sku "SKU-23"
-    :inv/count 100}])
+  [[:db/add [:inv/sku "SKU-3"] :inv/count 3]
+   [:db/add [:inv/sku "SKU-7"] :inv/count 27]
+   [:db/add [:inv/sku "SKU-9"] :inv/count 9]])
 
 ;; ---------------------------------------------------------------------
 ;;
@@ -388,24 +423,158 @@
 ;; ---------------------------------------------------------------------
 (defn setup-counts!
   "Assert inventory counts schema and seed"
-  []
-  (let [conn (:connection @connection)
-        res-schema (assert-count-schema! conn)
+  [conn]
+  (let [res-schema (assert-count-schema! conn)
         res-data (assert-count-data! conn)]
     @res-data))
+
+
+(defn setup-counts-if-not-exist!
+  [conn]
+  (if (some? conn)
+    (setup-counts! conn)
+    (let [res (setup-db!)
+          conn (:connection res)]
+      (setup-counts! conn))))
 
 
 ;; ---------------------------------------------------------------------
 ;; Query for SKUs with counts 
 ;; ---------------------------------------------------------------------
 (def inv-count-q
-  '[:find ?e ?sku ?c
+  '[:find ?e ?sku ?cnt
     :where [?e :inv/sku ?sku]
-    [?e :inv/count ?c]])
+           [?e :inv/count ?cnt]])
 
+;; ---------------------------------------------------------------------
+;; Query should return the SKUs 3 7 and 9 with corresponsing counts
+;; #{[17592186045437 "SKU-7" 27]
+;;   [17592186045439 "SKU-9" 9]
+;;   [17592186045433 "SKU-3" 3]}
+;; ---------------------------------------------------------------------
 (defn inv-count
   "Return inventory of SKUs and count"
   [conn]
   (d/q inv-count-q (d/db conn)))
 
 
+
+
+;; ---------------------------------------------------------------------
+;; Correct SKU-9. Count was not correct
+;;
+;; [:db/retract lookup ref arribute val]
+;; ---------------------------------------------------------------------
+
+(def count-sku9-q
+  [[:db/retract [:inv/sku "SKU-9"] :inv/count 9]
+   [:db/add "datomic.tx" :db/doc "retract and correct count for SKU-3"]])
+
+(defn retract-count-sku9
+  [conn]
+  (d/transact conn count-sku9-q ))
+
+;; ---------------------------------------------------------------------
+;; Impliciit retract
+;;
+;; Count of SKU-3 mut be 1
+;; We don't need to explicitly retract and then assert a new value
+;; Since the cardinality is :cardinality/one we simply asser t the new
+;; value. Datomic know that and will autmatically retract the old value
+;; before asserting the new one
+;; ---------------------------------------------------------------------
+
+(def correct-count-sku3-q
+  [[:db/add [:inv/sku "SKU-3"] :inv/count 1]
+   [:db/add "datomic.tx" :db/doc "corrected count to 1"]])
+
+
+
+(defn correct-count-sku3
+  [conn]
+  (d/transact conn correct-count-sku3-q))
+
+
+
+;; ---------------------------------------------------------------------
+;; 8. History
+;;
+;; Datomic can provides 2 types of historical querries:
+;; - as-of - any previous point in time. Time is either as an instant or
+;;           a transaction id.
+;; 
+;; - history - entire history of your data
+;;
+;; ---------------------------------------------------------------------
+
+;; ---------------------------------------------------------------------
+;; 7.1 as-of querries
+;; You don't need to remember the exact instant in time.
+;; You can query the system the most recent transactions instead
+;; and use those:
+;; [?tx :db/txInstant]
+;; ---------------------------------------------------------------------
+(def last-3-tx-q '[:find (max 3 ?tx)
+                   :where [?tx :db/txInstant]])
+
+(defn last-3-tx
+  "Get last 3 transaction ids.
+  Returns a list of a list of a list of 3 tx ids
+  [[[13194139534393 13194139534392 13194139534391]]]"
+  [conn]
+  (d/q last-3-tx-q (d/db conn)))
+
+
+
+(defn last-3-tx-sorted
+  "Get last 3 transaction ids.
+  Returns a list of a list of a list of 3 tx ids
+  [[[13194139534393 13194139534392 13194139534391]]]
+
+  NOTE: datomic-free returns unsorted hashset
+  #{[13194139534325] [13194139533366] ...}
+  Needs sorting: sort-by "
+  [conn]
+  (->> (d/q last-3-tx-q (d/db conn))
+       (sort-by first)))
+
+
+;; ---------------------------------------------------------------------
+;; The earliest of last 3 Tx
+;; ---------------------------------------------------------------------
+(defn first-of-last-3-tx
+  "Get last 3 transactions and return earliest meaning
+   leasr of the Tx ids
+   :eg 13194139534391"
+  [conn]
+  (->> (last-3-tx-sorted conn)
+       (first)
+       (first)
+       (last)))
+
+;; ---------------------------------------------------------------------
+;; Qerry count as-of tx
+;; Runds querry against (def db-as-of (d/as-of tx))
+;; ---------------------------------------------------------------------
+(defn inv-count-as-of
+  "Runs inventory count querry as-of (point in time point of) tx"
+  [conn tx]
+  (let [db (d/db conn)
+        db-before (d/as-of db tx)] 
+    (d/q inv-count-q db-before)))
+
+
+;; ---------------------------------------------------------------------
+;; History query for inventory count asserstions and reractions
+;; ---------------------------------------------------------------------
+(def history-q '[:find ?e ?sku ?cnt ?tx ?op
+                 :where [?e :inv/count ?cnt ?tx ?op]
+                 [?e :inv/sku ?sku]])
+
+
+(defn history-of-count
+  "Querry the history of the count assertions and restractions" 
+  [conn]
+  (let [db (d/db conn)
+        db-hist (d/history db)]
+    (d/q history-q db-hist)))

@@ -48,7 +48,7 @@
 ;;   :db/valueType :db.type/string
 ;;   :db/unique :db.unique/identity
 ;;   :db/cardinality :db.cardinality/one
-;;  :db/doc "unique string identifier for a particular product"}
+;;   :db/doc "unique string identifier for a particular product"}
 ;; 
 ;;  {:db/ident :inv/type
 ;;   :db/valueType :db.type/ref
@@ -62,25 +62,6 @@
 ;; 4 colours and 4 sizes.
 ;; => 4 x 4 x 4 = 64 maps
 ;;-------------------------------------------------------------
-(defn gen-inv-data
-  "Generate sample data
-  64 maps:
-  {:inv/sku \"SKU-1\"
-   :inv/type :shirt
-   :inv/colour :green
-   :inv/size :medium}"
-  []
-  (let [maps (for [t [:shirt :trousers :dress :hat]
-                   c [:red   :green    :blue  :yellow]
-                   s [:small :medium   :large :xlarge]]
-               {:inv/type t
-                :inv/colour c
-                :inv/size s })]
-    (->> maps         
-         (map-indexed (fn [idx map]
-                        (assoc map :inv/sku (str "SKU-" idx))))
-         vec)))
-
 
 ;;-------------------------------------------------------------
 ;; 2. Create, connect to the database then 
@@ -145,7 +126,7 @@
 ;; ---------------------------------------------------------------------
 ;; Find SKUs with same colour as SKU-7
 ;; Return their entity IDs, type, size and colour
-;;What's the actual colour?
+;; What's the actual colour?
 ;; ---------------------------------------------------------------------
 (def same-colourSKU7 '[:find ?o ?tp ?sz ?co
                        :where [?e :inv/sku "SKU-7"] ;;Find eid SKU-7

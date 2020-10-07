@@ -3,13 +3,15 @@
 ;; that crosscuts all domains.
 
 
-[;;Types
+[;; Enumerated types
+ 
+ ;; Types
  {:db/ident :shirt}
  {:db/ident :trousers}
  {:db/ident :dress}
  {:db/ident :hat}
 
- ;; Colour
+ ;; Colours
  {:db/ident :red}
  {:db/ident :green}
  {:db/ident :blue}
@@ -21,6 +23,7 @@
  {:db/ident :large}
  {:db/ident :xlarge}
 
+ ;; Describe an innventory entity
  {:db/ident :inv/sku
   :db/valueType :db.type/string
   :db/unique :db.unique/identity
